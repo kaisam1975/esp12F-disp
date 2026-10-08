@@ -1,0 +1,16 @@
+services:
+  usage-api:
+    build: ./server
+    env_file: .env
+    ports:
+      - "${PORT}:${PORT}"
+    # Both source files must already exist on the host before the first
+    # `docker compose up` (Docker Desktop/WSL2 silently creates a root-owned
+    # directory in place of a missing bind-mount source, which then breaks
+    # later reads/writes to that path — confirmed on this machine). The
+    # server itself degrades gracefully either way (a directory just makes
+    # the read fail -> ok:false, same as a missing file).
+    volumes:
+      - ${HOME}/.claude/.credentials.json:/root/.claude/.credentials.json:ro
+      - ${HOME}/.grok/logs/unified.jsonl:/root/.grok/logs/unified.jsonl:ro
+    restart: unless-stopped

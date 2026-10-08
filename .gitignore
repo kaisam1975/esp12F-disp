@@ -1,0 +1,4 @@
+.env
+node_modules/
+firmware/include/secrets.h
+firmware/.pio/
