@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-10
+
 ### Added
 - 新增 Docker API server（`server/`）：背景定期刷新並快取 Claude Code 5 小時額度（讀 Anthropic 官方 rate-limit API）與 Grok 額度（讀本機 Grok CLI 的 log），提供 `GET /display` 單一端點，資料來源異常時優雅降級為保留舊值 + `ok:false`，不會讓端點失敗
 - 新增 ESP-12F PlatformIO 韌體（`firmware/`）：WiFi 連線、每 30 秒輪詢 `/display`、SSD1306 OLED 顯示兩項額度百分比、長條圖與重置倒數；WiFi 斷線與資料過舊都有對應畫面提示
