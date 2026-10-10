@@ -4,6 +4,27 @@
 
 ---
 
+## 2026-10-10
+
+### 這次做了什麼
+- 排查「有時不會更新用量，會卡住」的回報：發現 `claude` 那行已經卡在 2026-10-08 的舊資料整整 2 天，`ok:false`
+- 根因：`docker-compose.yml` 把 `~/.claude/.credentials.json` 以**單一檔案**方式 bind mount 進 container，綁死的是當時那個 inode；Claude Code CLI 刷新 token 時是寫暫存檔後 rename 覆蓋（整個 inode 換掉），container 裡的 mount 永遠停留在舊的、已經被 unlink 的 inode 上，不會再看到新 token
+- 改成把 `~/.claude` 與 `~/.grok/logs` 整個**目錄** bind mount 進去，而不是各自的單一檔案；目錄掛載是即時依檔名查找，不受 rename 覆蓋影響
+- 同時幫 `refreshClaudeUsage` / `refreshGrokUsage` 的 catch block 加上 `console.error`，之後要診斷「卡住」不用再 exec 進 container 手動重現，`docker compose logs` 就看得到失敗原因
+
+### 為什麼這樣做 / 決策與取捨
+- Grok 那行沒有踩到這個問題，是因為 Grok CLI 對 log 是用附加寫入（append），檔案本身的 inode 不會變；只有 Claude CLI 這種「整檔覆蓋」的寫法才會踩到。但兩個都改成目錄掛載，一方面一致、一方面預防之後 Grok log 被 logrotate 之類的工具輪替（那也是 rename 覆蓋）。
+- 用 `systematic-debugging` 流程先蒐證（比較 host/container 端的 inode、device、`Links` 欄位）確認根因，再動手改，而不是猜測式地先重啟 container 看看能不能解決。
+- 驗證方式：改完後重建 container，手動在 host 端模擬一次 Claude CLI 的「複製到暫存檔再 rename 覆蓋」寫法，確認 container 端**沒有重啟也立刻看到新 inode**，證明目錄掛載真的解決了問題，不是巧合。
+
+### 遇到的問題
+見 [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) 新增條目「Claude 那一行卡在舊資料不會更新（不是 ok:false 的暫時性問題）」。
+
+### 下一步
+- 觀察接下來幾天 Claude token 自然刷新時，是否真的持續正常更新（目前只驗證了機制本身，還沒等到一次真實的 CLI 自動換 token）
+
+---
+
 ## 2026-10-08
 
 ### 這次做了什麼

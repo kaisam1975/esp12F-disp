@@ -6,6 +6,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 修正 `docker-compose.yml` 對 `~/.claude/.credentials.json`、`~/.grok/logs/unified.jsonl` 用單一檔案 bind mount 的問題：Claude Code CLI 刷新 token 是整檔覆蓋（換 inode），單檔掛載會卡在舊 inode 永遠不更新；改成掛載父目錄解決。另外幫 `refreshClaudeUsage` / `refreshGrokUsage` 失敗時加上 `console.error`，方便用 `docker compose logs` 診斷
+
 ## [1.0.0] - 2026-10-10
 
 ### Added

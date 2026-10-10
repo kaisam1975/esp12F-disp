@@ -66,7 +66,8 @@ async function refreshClaudeUsage(opts = {}) {
     } else {
       claudeCache = { ...status, updatedAt: new Date(now()).toISOString() };
     }
-  } catch {
+  } catch (err) {
+    console.error(`[claude] refresh failed: ${err.message}`);
     claudeCache = { ...claudeCache, ok: false };
   }
 }

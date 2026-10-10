@@ -59,7 +59,8 @@ async function refreshGrokUsage(opts = {}) {
     const status = computeGrokStatus(latest);
     if (!status.ok) throw new Error('no usable credits config found in log');
     grokCache = { ...status, updatedAt: new Date(now()).toISOString() };
-  } catch {
+  } catch (err) {
+    console.error(`[grok] refresh failed: ${err.message}`);
     grokCache = { ...grokCache, ok: false };
   }
 }

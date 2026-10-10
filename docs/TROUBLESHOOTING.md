@@ -65,6 +65,44 @@ Server 讀取 `~/.grok/logs/unified.jsonl` 的那一瞬間，剛好撞上 Grok C
 **解法**
 不用特別處理——這正是設計好的容錯行為：解析失敗時只會把 `ok` 設 `false` 並保留上一次成功的數值，下一次背景刷新（預設 300 秒）幾乎必然會讀到完整內容而自動恢復。如果持續好幾輪刷新都是 `false`，才需要真的去查 log 格式是不是變了。
 
+### Grok 那一行持續顯示 N/A（不是暫時的），`unified.jsonl` 裡明明有資料
+**症狀**
+`/display` 的 `grok` 一直是 `percent:null, resetSeconds:null, ok:false`，而且等好幾輪背景刷新（超過 5~10 分鐘）都沒有自動恢復，但 `~/.grok/logs/unified.jsonl` 檔案確實存在、檔案大小也還在增加。
+
+**原因**
+`server/src/grok.js` 的解析邏輯是照目前這個版本的 Grok CLI log 格式寫死的：固定尋找訊息文字包含 `"fetched credits config"`，並預期能在裡面讀到 `ctx.config.creditUsagePercent` 與 `ctx.config.currentPeriod.end`（或退而求其次的 `billingPeriodEnd`）這幾個確切欄位。Grok CLI 之後改版，只要這段訊息文字或欄位名稱變了，`parseLatestCreditsConfig` 就會永遠找不到可用的資料，不是暫時性的，不會自己恢復。
+
+**解法**
+1. 先直接看真實 log 最新一筆長什麼樣子，確認到底是訊息文字變了還是欄位名稱變了：
+   ```bash
+   grep "fetched credits config" ~/.grok/logs/unified.jsonl | tail -1 | python3 -m json.tool
+   ```
+   如果 `grep` 完全找不到這段文字，代表 Grok CLI 把訊息文字本身也改了，要改抓別的關鍵字。
+2. 對照 `server/src/grok.js` 裡的 `MATCH_TEXT` 常數，以及 `computeGrokStatus` 讀取的 `creditUsagePercent` / `currentPeriod.end` / `billingPeriodEnd` 這幾個欄位名稱，依實際抓到的新格式更新。
+3. 先把這次抓到的真實內容做成 `server/test/grok.test.js` 的新測試案例（參考既有測試的寫法），看著它因為格式不符而失敗（RED），再去改 `grok.js` 讓測試通過（GREEN），不要憑感覺改完就直接部署。
+
+**相關**
+這個限制在 [SRS.md 第 6 節「限制與假設」](./SRS.md) 已經先寫明：Grok 資料來源依賴的是非官方公開的本機 log 格式，之後改版本來就有可能需要調整解析邏輯。
+
+### Claude 那一行卡在舊資料不會更新（不是 ok:false 的暫時性問題）
+**症狀**
+`/display` 的 `claude.updatedAt` 停在很久以前的時間點（例如卡了 2 天），`percent`/`resetSeconds` 完全不變；跟上面那個 Grok 的暫時性 race condition 不一樣，不管等多久、重新整理多少次都不會自己好。容器本身是正常運行中的（`docker compose ps` 顯示 `Up`），log 也沒有任何錯誤訊息。
+
+**原因**
+`docker-compose.yml` 把 `~/.claude/.credentials.json` 以**單一檔案**方式 bind mount 進 container。Claude Code CLI 刷新 token 時是「寫暫存檔、再 rename 覆蓋原檔」的原子寫入方式，host 端的檔案會換成一個全新的 inode；但單一檔案的 bind mount 綁定的是 **mount 當下那個 inode**，host 端 rename 覆蓋之後，container 裡看到的還是舊的、已經被 unlink 的孤兒 inode，永遠不會再更新。用 `docker compose exec usage-api stat /root/.claude/.credentials.json` 搭配 host 端 `stat ~/.claude/.credentials.json` 比對，會看到兩邊 `Device`/`Inode` 不一樣，容器端還會顯示 `Links: 0`（代表那個 inode 已經在 host 端被刪除，只是 container 還抱著不放）。
+
+**解法**
+把 bind mount 的來源改成**父目錄**，而不是個別檔案：
+```yaml
+volumes:
+  - ${HOME}/.claude:/root/.claude:ro
+  - ${HOME}/.grok/logs:/root/.grok/logs:ro
+```
+目錄的 bind mount 是每次都即時依檔名查找，不會綁死某個 inode，host 端無論怎麼 rename 覆蓋都看得到最新內容。改完用 `docker compose up -d --force-recreate` 重建 container 套用新設定。
+
+**相關**
+詳見 [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md) 2026-10-10 條目。
+
 ## 部署 / Docker
 
 ### `docker compose up` 後，掛載的檔案變成一個空目錄
